@@ -9,6 +9,8 @@ the route table so as routing only the censored ip to the vpn.
 import argparse
 import math
 import re
+import socket
+import struct
 import sys
 import urllib2
 
@@ -70,7 +72,6 @@ def generate_linux(metric):  #pylint: disable=unused-argument
         downfile.write('route del -net %s netmask %s\n' % (ip, mask))
 
     downfile.write('rm /tmp/vpn_oldgw\n')
-
 
     print ('For pptp only, please copy the file ip-pre-up to the folder'
            ' "/etc/ppp", and copy the file ip-down to the folder'
@@ -175,7 +176,7 @@ def generate_android(metric):  #pylint: disable=unused-argument
     TODO (kim): add function docstring
     """
 
-    results = fetch_ip_data()
+    results = fetch_ip_data2()
 
     upscript_header = (
         '#!/bin/sh\n'
@@ -185,12 +186,18 @@ def generate_android(metric):  #pylint: disable=unused-argument
         'alias route=\'/system/xbin/busybox route\'\n'
         '\n'
         'OLDGW=`netstat -rn | grep ^0\.0\.0\.0 | awk \'{print $2}\'`\n'
-        '\n')
+        '\n'
+        'route add -net 10.0.0.0 netmask 255.0.0.0 gw $OLDGW\n'
+        'route add -net 172.16.0.0 netmask 255.240.0.0 gw $OLDGW\n'
+        'route add -net 192.168.0.0 netmask 255.255.0.0 gw $OLDGW\n')
 
     downscript_header = (
         '#!/bin/sh\n'
         'alias route=\'/system/xbin/busybox route\'\n'
-        '\n')
+        '\n'
+        'route del -net 10.0.0.0 netmask 255.0.0.0\n'
+        'route del -net 172.16.0.0 netmask 255.240.0.0\n'
+        'route del -net 192.168.0.0 netmask 255.255.0.0\n')
 
     upfile = open('vpnup.sh', 'w')
     downfile = open('vpndown.sh', 'w')
@@ -198,7 +205,7 @@ def generate_android(metric):  #pylint: disable=unused-argument
     upfile.write(upscript_header)
     downfile.write(downscript_header)
 
-    for ip, mask, _ in results:  #pylint: disable=invalid-name
+    for (ip, mask, _) in results:  #pylint: disable=invalid-name
         upfile.write('route add -net %s netmask %s gw $OLDGW\n' % (ip, mask))
         downfile.write('route del -net %s netmask %s\n' % (ip, mask))
 
@@ -218,7 +225,8 @@ def fetch_ip_data():
     #fetch data from apnic
     print ('Fetching data from apnic.net, it might take a few minutes,'
            ' please wait...')
-    url = r'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest'
+#    url = r'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest'
+    url = r'file:../delegated-apnic-latest'
     data = urllib2.urlopen(url).read()
 
     cnregex = re.compile(
@@ -236,7 +244,7 @@ def fetch_ip_data():
         imask = 0xffffffff ^ (num_ip - 1)
         #convert to string
         imask = hex(imask)[2:]
-        mask = [0]*4
+        mask = [0] * 4
         mask[0] = imask[0:2]
         mask[1] = imask[2:4]
         mask[2] = imask[4:6]
@@ -252,6 +260,108 @@ def fetch_ip_data():
         results.append((starting_ip, mask, mask2))
 
     return results
+
+
+def fetch_ip_data2():
+    """
+    TODO (kim): add function docstring
+
+    created by kim.max@gmail.com
+    """
+
+    #fetch data from apnic
+    print ('Fetching data from apnic.net, it might take a few minutes,'
+           ' please wait...')
+#    url = r'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest'
+    url = r'file:../delegated-apnic-latest'
+    data = urllib2.urlopen(url).read()
+
+    cnregex = re.compile(
+        r'apnic\|cn\|ipv4\|[0-9\.]+\|[0-9]+\|[0-9]+\|a.*',
+        re.IGNORECASE)
+    cndata = cnregex.findall(data)
+
+    results = []
+
+    routed = 0
+    amount = 0
+    start = end = 0
+
+    for item in cndata:
+        # apnic|CN|ipv4|1.0.1.0|256|20110414|allocated
+        if 'CN|ipv4' not in item:
+            continue
+        lists = item.split('|')
+        ip = lists[3]
+        count = int(lists[4])
+        newstart = getint(ip)
+        newend = newstart + count
+        if end == newstart:
+            end = newend
+        else:
+            if end - start + 1 >= (1 << (32 - MAXBITS)):
+                r = check_range(start, end - 1)
+                if (r[1] != 0):
+                    results += r[0]
+                    routed += r[1]
+            amount += end - start
+            start = newstart
+            end = newend
+    print >> sys.stderr, (
+            '%d%%' % (100 * routed / amount),
+            'routed=%d, amount=%d' % (routed, amount))
+    return results
+
+
+getip = lambda x: socket.inet_ntoa(struct.pack('!I', x))
+getint = lambda x: struct.unpack('!I', socket.inet_aton(x))[0]
+MAXBITS = 16
+
+def check_range(start, end):
+    """
+    TODO (kim): add function docstring
+    """
+
+    count = 0
+    base = start
+    results = []
+
+    while base <= end:
+        step = 0
+        while (base | (1 << step)) != base:
+            if (base | (0xffffffff >> (31 - step))) > end:
+                break
+            step += 1
+        if step >= (32 - MAXBITS):
+            count += (1 << step)
+            results.append((getip(base), get_ipv4_mask_str(32 - step), 0))
+        base += (1 << step)
+
+    return results, count
+
+
+def get_ipv4_mask_str(num):
+    """
+    TODO (kim): add function docstring
+
+    writen by kim.max@gmail.com
+    """
+    if num == 0:
+        return '0.0.0.0'
+    else:
+        num = 2 ** (32 - num)
+    imask = 0xffffffff ^ (num - 1)
+    #convert to str
+    imask = hex(imask)[2:]
+    mask = [0] * 4
+    mask[0] = imask[0:2]
+    mask[1] = imask[2:4]
+    mask[2] = imask[4:6]
+    mask[3] = imask[6:8]
+    #convert str to int
+    mask = [int(i, 16) for i in mask]
+    mask = '%d.%d.%d.%d' % tuple(mask)
+    return mask
 
 
 def main():
