@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#vim: set ts=8 et sw=4 sts=4
+# vim: set ts=8 et sw=4 sts=4
 
 """
 scripts help chinese netizen, who uses vpn to combat censorship, by modifying
@@ -12,7 +12,14 @@ import re
 import socket
 import struct
 import sys
-import urllib2
+if sys.version_info.major == 2:
+    import urllib2
+elif sys.version_info.major == 3:
+    import urllib.request
+else:
+    print("chnroute can run in python 2 and python 3 only.")
+    exit(1)
+import os
 
 
 def generate_ovpn(metric):
@@ -22,16 +29,16 @@ def generate_ovpn(metric):
 
     results = fetch_ip_data()
     rfile = open('routes.txt', 'w')
-    for ip, mask, _ in results:  #pylint: disable=invalid-name
+    for ip, mask, _ in results:  # pylint: disable=invalid-name
         route_item = 'route %s %s net_gateway %d\n' % (ip, mask, metric)
         rfile.write(route_item)
     rfile.close()
-    print 'Usage: Append the content of the newly created routes.txt to your' \
-          ' openvpn config file, and also add "max-routes %d", which takes a' \
-          ' line, to the head of the file.' % (len(results) + 20)
+    print('Usage: Append the content of the newly created routes.txt to your'
+          ' openvpn config file, and also add "max-routes %d", which takes a'
+          ' line, to the head of the file.' % (len(results) + 20))
 
 
-def generate_linux(metric):  #pylint: disable=unused-argument
+def generate_linux(metric):  # pylint: disable=unused-argument
     """
     TODO (kim): add function docstring
     """
@@ -42,8 +49,8 @@ def generate_linux(metric):  #pylint: disable=unused-argument
         'export PATH="/bin:/sbin:/usr/sbin:/usr/bin"\n'
         '\n'
         'OLDGW=`ip route show'
-            ' | grep \'^default\''
-            ' | sed -e \'s/default via \\([^ ]*\\).*/\\1/\'`\n'
+        ' | grep \'^default\''
+        ' | sed -e \'s/default via \\([^ ]*\\).*/\\1/\'`\n'
         '\n'
         'if [ $OLDGW == \'\' ]; then\n'
         '    exit 0\n'
@@ -67,18 +74,18 @@ def generate_linux(metric):  #pylint: disable=unused-argument
     upfile.write(upscript_header)
     downfile.write(downscript_header)
 
-    for ip, mask, _ in results:  #pylint: disable=invalid-name
+    for ip, mask, _ in results:  # pylint: disable=invalid-name
         upfile.write('route add -net %s netmask %s gw $OLDGW\n' % (ip, mask))
         downfile.write('route del -net %s netmask %s\n' % (ip, mask))
 
     downfile.write('rm /tmp/vpn_oldgw\n')
 
-    print ('For pptp only, please copy the file ip-pre-up to the folder'
-           ' "/etc/ppp", and copy the file ip-down to the folder'
-           ' "/etc/ppp/ip-down.d".')
+    print('For pptp only, please copy the file ip-pre-up to the folder'
+          ' "/etc/ppp", and copy the file ip-down to the folder'
+          ' "/etc/ppp/ip-down.d".')
 
 
-def generate_mac(metric):  #pylint: disable=unused-argument
+def generate_mac(metric):  # pylint: disable=unused-argument
     """
     TODO (kim): add function docstring
     """
@@ -90,10 +97,10 @@ def generate_mac(metric):  #pylint: disable=unused-argument
         'export PATH="/bin:/sbin:/usr/sbin:/usr/bin"\n'
         '\n'
         'OLDGW=`netstat -nr'
-            ' | grep \'^default\''
-            ' | grep -v \'ppp\''
-            ' | sed \'s/default *\\([0-9\.]*\\) .*/\\1/\''
-            ' | awk \'{if($1){print $1}}\'`\n'
+        ' | grep \'^default\''
+        ' | grep -v \'ppp\''
+        ' | sed \'s/default *\\([0-9\.]*\\) .*/\\1/\''
+        ' | awk \'{if($1){print $1}}\'`\n'
         '\n'
         'if [ ! -e /tmp/pptp_oldgw ]; then\n'
         '    echo "${OLDGW}" > /tmp/pptp_oldgw\n'
@@ -125,7 +132,7 @@ def generate_mac(metric):  #pylint: disable=unused-argument
     upfile.write(upscript_header)
     downfile.write(downscript_header)
 
-    for ip, _, mask in results:  #pylint: disable=invalid-name
+    for ip, _, mask in results:  # pylint: disable=invalid-name
         upfile.write('route add %s/%s "${OLDGW}"\n' % (ip, mask))
         downfile.write('route delete %s/%s ${OLDGW}\n' % (ip, mask))
 
@@ -133,9 +140,9 @@ def generate_mac(metric):  #pylint: disable=unused-argument
     upfile.close()
     downfile.close()
 
-    print ('For pptp on mac only, please copy ip-up and ip-down to the /etc/ppp'
-           ' folder, don\'t forget to make them executable with the chmod'
-           ' command.')
+    print('For pptp on mac only, please copy ip-up and ip-down to the /etc/ppp'
+          ' folder, don\'t forget to make them executable with the chmod'
+          ' command.')
 
 
 def generate_win(metric):
@@ -148,7 +155,7 @@ def generate_win(metric):
     upscript_header = (
         '@echo off\n'
         'for /F "tokens=3" %%* in (\'route print ^| findstr "\\<0.0.0.0\\>"\')'
-            ' do set "gw=%%*"\n'
+        ' do set "gw=%%*"\n'
         '\n')
 
     upfile = open('vpnup.bat', 'w')
@@ -159,19 +166,19 @@ def generate_win(metric):
 
     downfile.write('@echo off\n')
 
-    for ip, mask, _ in results:  #pylint: disable=invalid-name
+    for ip, mask, _ in results:  # pylint: disable=invalid-name
         upfile.write('route add %s mask %s %s metric %d\n'
-            % (ip, mask, "%gw%", metric))
+                     % (ip, mask, "%gw%", metric))
         downfile.write('route delete %s\n' % (ip))
 
     upfile.close()
     downfile.close()
 
-    print ('For pptp on windows only, run vpnup.bat before dialing to vpn,'
-           ' and run vpndown.bat after disconnected from the vpn.')
+    print('For pptp on windows only, run vpnup.bat before dialing to vpn,'
+          ' and run vpndown.bat after disconnected from the vpn.')
 
 
-def generate_android(metric):  #pylint: disable=unused-argument
+def generate_android(metric):  # pylint: disable=unused-argument
     """
     TODO (kim): add function docstring
     """
@@ -205,16 +212,16 @@ def generate_android(metric):  #pylint: disable=unused-argument
     upfile.write(upscript_header)
     downfile.write(downscript_header)
 
-    for (ip, mask, _) in results:  #pylint: disable=invalid-name
+    for ip, mask, _ in results:  # pylint: disable=invalid-name
         upfile.write('route add -net %s netmask %s gw $OLDGW\n' % (ip, mask))
         downfile.write('route del -net %s netmask %s\n' % (ip, mask))
 
     upfile.close()
     downfile.close()
 
-    print ('Old school way to call up/down script from openvpn client.'
-           ' use the regular openvpn 2.1 method to add routes if it\'s'
-           ' possible.')
+    print('Old school way to call up/down script from openvpn client.'
+          ' use the regular openvpn 2.1 method to add routes if it\'s'
+          ' possible.')
 
 
 def fetch_ip_data():
@@ -222,12 +229,20 @@ def fetch_ip_data():
     TODO (kim): add function docstring
     """
 
-    #fetch data from apnic
-    print ('Fetching data from apnic.net, it might take a few minutes,'
-           ' please wait...')
-#    url = r'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest'
-    url = r'file:../delegated-apnic-latest'
-    data = urllib2.urlopen(url).read()
+    # fetch data from apnic
+    print('Fetching data from apnic.net, it might take a few minutes,'
+          ' please wait...')
+    if os.path.exists("delegated-apnic-latest"):
+        print("File delegated-apnic-latest is found in current directory."
+              " I, robot, is going to use it.")
+        with open("delegated-apnic-latest") as f:
+            data = f.read()
+    else:
+        url = r'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest'
+        if sys.version_info.major == 2:
+            data = urllib2.urlopen(url).read()
+        elif sys.version_info.major == 3:
+            data = urllib.request.urlopen(url).read()
 
     cnregex = re.compile(
         r'apnic\|cn\|ipv4\|[0-9\.]+\|[0-9]+\|[0-9]+\|a.*',
@@ -242,7 +257,7 @@ def fetch_ip_data():
         num_ip = int(unit_items[4])
 
         imask = 0xffffffff ^ (num_ip - 1)
-        #convert to string
+        # convert to string
         imask = hex(imask)[2:]
         mask = [0] * 4
         mask[0] = imask[0:2]
@@ -250,11 +265,11 @@ def fetch_ip_data():
         mask[2] = imask[4:6]
         mask[3] = imask[6:8]
 
-        #convert str to int
+        # convert str to int
         mask = [int(i, 16) for i in mask]
         mask = '%d.%d.%d.%d' % tuple(mask)
 
-        #mask in *nix format
+        # mask in *nix format
         mask2 = 32 - int(math.log(num_ip, 2))
 
         results.append((starting_ip, mask, mask2))
@@ -269,12 +284,21 @@ def fetch_ip_data2():
     created by kim.max@gmail.com
     """
 
-    #fetch data from apnic
-    print ('Fetching data from apnic.net, it might take a few minutes,'
-           ' please wait...')
-#    url = r'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest'
-    url = r'file:../delegated-apnic-latest'
-    data = urllib2.urlopen(url).read()
+    # fetch data from apnic
+    print('Fetching data from apnic.net, it might take a few minutes,'
+          ' please wait...')
+    if os.path.exists("delegated-apnic-latest"):
+        print("File delegated-apnic-latest is found in current directory."
+              " I, robot, is going to use it.")
+        with open("delegated-apnic-latest") as f:
+            data = f.read()
+    else:
+        url = r'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest'
+        if sys.version_info.major == 2:
+            data = urllib2.urlopen(url).read()
+        elif sys.version_info.major == 3:
+            data = urllib.request.urlopen(url).read()
+
 
     cnregex = re.compile(
         r'apnic\|cn\|ipv4\|[0-9\.]+\|[0-9]+\|[0-9]+\|a.*',
@@ -308,14 +332,15 @@ def fetch_ip_data2():
             start = newstart
             end = newend
     print >> sys.stderr, (
-            '%d%%' % (100 * routed / amount),
-            'routed=%d, amount=%d' % (routed, amount))
+        '%d%%' % (100 * routed / amount),
+        'routed=%d, amount=%d' % (routed, amount))
     return results
 
 
 getip = lambda x: socket.inet_ntoa(struct.pack('!I', x))
 getint = lambda x: struct.unpack('!I', socket.inet_aton(x))[0]
 MAXBITS = 16
+
 
 def check_range(start, end):
     """
@@ -351,29 +376,24 @@ def get_ipv4_mask_str(num):
     else:
         num = 2 ** (32 - num)
     imask = 0xffffffff ^ (num - 1)
-    #convert to str
+    # convert to str
     imask = hex(imask)[2:]
     mask = [0] * 4
     mask[0] = imask[0:2]
     mask[1] = imask[2:4]
     mask[2] = imask[4:6]
     mask[3] = imask[6:8]
-    #convert str to int
+    # convert str to int
     mask = [int(i, 16) for i in mask]
     mask = '%d.%d.%d.%d' % tuple(mask)
     return mask
 
 
 def main():
-    """
-    TODO (kim): add function docstring
-    """
-
     parser = argparse.ArgumentParser(
         description='Generate routing rules for vpn.')
     parser.add_argument(
-        '-p',
-        '--platform',
+        '-p', '--platform',
         dest='platform',
         default='openvpn',
         nargs='?',
